@@ -81,7 +81,7 @@ endif(GST_BUILD)
 
 add_subdirectory(btservice_proto)
 set(BTSERVICE_PROTO_INCLUDE_DIRS ${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${BTSERVICE_PROTO_INCLUDE_DIRS})
+include_directories(${BTSERVICE_PROTO_INCLUDE_DIRS} /usr/include/gstreamer-1.0 /usr/include/glib-2.0 /usr/lib/aarch64-linux-gnu/glib-2.0/include/)
 
 add_subdirectory(openauto)
 add_subdirectory(autoapp)
