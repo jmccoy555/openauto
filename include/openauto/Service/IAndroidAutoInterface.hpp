@@ -69,8 +69,15 @@ public:
     {
         if(m_serviceFactory != NULL)
         {
-            
+
             m_serviceFactory->setNightMode(mode);
+        }
+    }
+    void setLocation(double latitude, double longitude, double altitude, double speed, double bearing, double accuracy)
+    {
+        if(m_serviceFactory != NULL)
+        {
+            m_serviceFactory->setLocation(latitude, longitude, altitude, speed, bearing, accuracy);
         }
     }
     

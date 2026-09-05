@@ -43,6 +43,7 @@ public:
     void setOpacity(unsigned int alpha);
     void resize();
     void setNightMode(bool nightMode);
+    void setLocation(double latitude, double longitude, double altitude, double speed, double bearing, double accuracy);
     void sendButtonPress(aasdk::proto::enums::ButtonCode::Enum buttonCode, projection::WheelDirection wheelDirection = projection::WheelDirection::NONE, projection::ButtonEventType buttonEventType = projection::ButtonEventType::NONE);
     void sendKeyEvent(QKeyEvent* event);
     void setAndroidAutoInterface(IAndroidAutoInterface* aa_interface);
@@ -74,6 +75,13 @@ private:
 #endif
     btservice::btservice btservice_;
     bool nightMode_;
+    bool hasLocation_ = false;
+    double locationLatitude_ = 0;
+    double locationLongitude_ = 0;
+    double locationAltitude_ = 0;
+    double locationSpeed_ = 0;
+    double locationBearing_ = 0;
+    double locationAccuracy_ = 0;
     std::weak_ptr<SensorService> sensorService_;
     std::weak_ptr<InputService> inputService_;
     std::weak_ptr<MediaStatusService> mediaStatusService_;

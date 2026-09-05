@@ -78,6 +78,10 @@ ServiceList ServiceFactory::create(aasdk::messenger::IMessenger::Pointer messeng
 
     std::shared_ptr<SensorService> sensorService = std::make_shared<SensorService>(ioService_, messenger, nightMode_);
     sensorService_ = sensorService;
+    if(hasLocation_)
+    {
+        sensorService->setLocation(locationLatitude_, locationLongitude_, locationAltitude_, locationSpeed_, locationBearing_, locationAccuracy_);
+    }
     serviceList.emplace_back(sensorService);
 
     serviceList.emplace_back(this->createVideoService(messenger));
@@ -259,6 +263,26 @@ void ServiceFactory::setNightMode(bool nightMode)
     if(std::shared_ptr<SensorService> sensorService = sensorService_.lock())
     {
         sensorService->setNightMode(nightMode_);
+    }
+}
+
+void ServiceFactory::setLocation(double latitude, double longitude, double altitude, double speed, double bearing, double accuracy)
+{
+    // Latched here too (not just forwarded), same as nightMode_ - a fresh
+    // SensorService gets created per AA session (create(), below), and
+    // should start from the last known fix rather than nothing until the
+    // next update happens to arrive after reconnecting.
+    hasLocation_ = true;
+    locationLatitude_ = latitude;
+    locationLongitude_ = longitude;
+    locationAltitude_ = altitude;
+    locationSpeed_ = speed;
+    locationBearing_ = bearing;
+    locationAccuracy_ = accuracy;
+
+    if(std::shared_ptr<SensorService> sensorService = sensorService_.lock())
+    {
+        sensorService->setLocation(latitude, longitude, altitude, speed, bearing, accuracy);
     }
 }
 

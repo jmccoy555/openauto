@@ -154,7 +154,19 @@ void App::waitForWirelessDevice()
     OPENAUTO_LOG(info) << "[App] Waiting for Wireless device...";
 
     auto socket = std::make_shared<boost::asio::ip::tcp::socket>(ioService_);
-    acceptor_.async_accept(*socket, [this, socket](const boost::system::error_code &) { this->start(socket); });
+    acceptor_.async_accept(*socket, [this, socket](const boost::system::error_code &) {
+        // Nagle's algorithm was left at its default (on) here, which delays
+        // sending small packets to batch them - a well-known source of extra
+        // latency for chatty, latency-sensitive protocols like this one over
+        // TCP. Wireless AA is the only transport that goes through this
+        // socket (USB uses AOAP, not TCP), which lines up with USB being
+        // fine and wireless being laggy.
+        boost::system::error_code ec;
+        socket->set_option(boost::asio::ip::tcp::no_delay(true), ec);
+        if (ec)
+            OPENAUTO_LOG(error) << "[App] Failed to set TCP_NODELAY on wireless socket: " << ec.message();
+        this->start(socket);
+    });
 }
 
 void App::onAndroidAutoQuit()

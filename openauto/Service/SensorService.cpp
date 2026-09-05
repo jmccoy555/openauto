@@ -16,6 +16,9 @@
 *  along with openauto. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <chrono>
+#include <cmath>
+
 #include "aasdk_proto/DrivingStatusEnum.pb.h"
 #include "OpenautoLog.hpp"
 #include "openauto/Service/SensorService.hpp"
@@ -29,6 +32,7 @@ SensorService::SensorService(boost::asio::io_service& ioService, aasdk::messenge
     : strand_(ioService)
     , channel_(std::make_shared<aasdk::channel::sensor::SensorServiceChannel>(strand_, std::move(messenger)))
     , nightMode_(nightMode)
+    , locationTimer_(ioService)
 {
 
 }
@@ -45,6 +49,8 @@ void SensorService::stop()
 {
     strand_.dispatch([this, self = this->shared_from_this()]() {
         OPENAUTO_LOG(info) << "[SensorService] stop.";
+        locationStarted_ = false;
+        locationTimer_.cancel();
     });
 }
 
@@ -56,7 +62,7 @@ void SensorService::fillFeatures(aasdk::proto::messages::ServiceDiscoveryRespons
     channelDescriptor->set_channel_id(static_cast<uint32_t>(channel_->getId()));
     auto* sensorChannel = channelDescriptor->mutable_sensor_channel();
     sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::DRIVING_STATUS);
-    //sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::LOCATION);
+    sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::LOCATION);
     sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::NIGHT_DATA);
 }
 
@@ -93,6 +99,11 @@ void SensorService::onSensorStartRequest(const aasdk::proto::messages::SensorSta
     else if(request.sensor_type() == aasdk::proto::enums::SensorType::NIGHT_DATA)
     {
         promise->then(std::bind(&SensorService::sendNightData, this->shared_from_this()),
+                      std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));
+    }
+    else if(request.sensor_type() == aasdk::proto::enums::SensorType::LOCATION)
+    {
+        promise->then(std::bind(&SensorService::scheduleLocationUpdate, this->shared_from_this()),
                       std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));
     }
     else
@@ -133,6 +144,64 @@ void SensorService::setNightMode(bool nightMode)
 {
     nightMode_ = nightMode;
     this->sendNightData();
+}
+
+void SensorService::setLocation(double latitude, double longitude, double altitude, double speed, double bearing, double accuracy)
+{
+    strand_.dispatch([this, self = this->shared_from_this(), latitude, longitude, altitude, speed, bearing, accuracy]() {
+        hasLocation_ = true;
+        latitude_ = latitude;
+        longitude_ = longitude;
+        altitude_ = altitude;
+        speed_ = speed;
+        bearing_ = bearing;
+        accuracy_ = accuracy;
+    });
+}
+
+// Kicks off on the phone's first SensorStartRequest for LOCATION and keeps
+// rescheduling itself roughly once a second for as long as the sensor
+// stays started - stop() cancels locationTimer_ to end the chain rather
+// than this checking some other "still open" flag each time.
+void SensorService::scheduleLocationUpdate()
+{
+    locationStarted_ = true;
+    this->sendLocationData();
+
+    locationTimer_.expires_after(std::chrono::seconds(1));
+    locationTimer_.async_wait(strand_.wrap([this, self = this->shared_from_this()](const boost::system::error_code& ec) {
+        if (!ec && locationStarted_)
+            this->scheduleLocationUpdate();
+    }));
+}
+
+void SensorService::sendLocationData()
+{
+    // Nothing latched via setLocation() yet - skip rather than send a
+    // fabricated 0,0 fix while waiting on a real one.
+    if (!hasLocation_)
+        return;
+
+    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
+
+    aasdk::proto::messages::SensorEventIndication indication;
+    auto* location = indication.add_gps_location();
+    location->set_timestamp(static_cast<uint64_t>(now.count()));
+    // GPSLocation's latitude/longitude are fixed-point int32 - degrees x1e7,
+    // Android's own standard convention for this (fits int32's range with
+    // ~1cm precision at the equator). Unverified against a real phone/head
+    // unit pairing - flag this first if injected location doesn't show up
+    // right on the Android Auto side.
+    location->set_latitude(static_cast<google::protobuf::int32>(std::lround(latitude_ * 1e7)));
+    location->set_longitude(static_cast<google::protobuf::int32>(std::lround(longitude_ * 1e7)));
+    location->set_accuracy(static_cast<google::protobuf::uint32>(std::max(0.0, accuracy_)));
+    location->set_altitude(static_cast<google::protobuf::int32>(std::lround(altitude_)));
+    location->set_speed(static_cast<google::protobuf::int32>(std::lround(speed_)));
+    location->set_bearing(static_cast<google::protobuf::int32>(std::lround(bearing_)));
+
+    auto promise = aasdk::channel::SendPromise::defer(strand_);
+    promise->then([]() {}, std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));
+    channel_->sendSensorEventIndication(indication, std::move(promise));
 }
 
 }
