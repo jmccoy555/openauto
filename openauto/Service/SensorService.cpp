@@ -50,6 +50,7 @@ void SensorService::stop()
     strand_.dispatch([this, self = this->shared_from_this()]() {
         OPENAUTO_LOG(info) << "[SensorService] stop.";
         locationStarted_ = false;
+        carSpeedStarted_ = false;
         locationTimer_.cancel();
     });
 }
@@ -63,6 +64,7 @@ void SensorService::fillFeatures(aasdk::proto::messages::ServiceDiscoveryRespons
     auto* sensorChannel = channelDescriptor->mutable_sensor_channel();
     sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::DRIVING_STATUS);
     sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::LOCATION);
+    sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::CAR_SPEED);
     sensorChannel->add_sensors()->set_type(aasdk::proto::enums::SensorType::NIGHT_DATA);
 }
 
@@ -103,6 +105,14 @@ void SensorService::onSensorStartRequest(const aasdk::proto::messages::SensorSta
     }
     else if(request.sensor_type() == aasdk::proto::enums::SensorType::LOCATION)
     {
+        promise->then(std::bind(&SensorService::scheduleLocationUpdate, this->shared_from_this()),
+                      std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));
+    }
+    else if(request.sensor_type() == aasdk::proto::enums::SensorType::CAR_SPEED)
+    {
+        // Shares scheduleLocationUpdate()/sendLocationData()'s single timer
+        // rather than starting a second one - see carSpeedStarted_'s comment.
+        carSpeedStarted_ = true;
         promise->then(std::bind(&SensorService::scheduleLocationUpdate, this->shared_from_this()),
                       std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));
     }
@@ -185,19 +195,37 @@ void SensorService::sendLocationData()
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
 
     aasdk::proto::messages::SensorEventIndication indication;
-    auto* location = indication.add_gps_location();
-    location->set_timestamp(static_cast<uint64_t>(now.count()));
-    // GPSLocation's latitude/longitude are fixed-point int32 - degrees x1e7,
-    // Android's own standard convention for this (fits int32's range with
-    // ~1cm precision at the equator). Unverified against a real phone/head
-    // unit pairing - flag this first if injected location doesn't show up
-    // right on the Android Auto side.
-    location->set_latitude(static_cast<google::protobuf::int32>(std::lround(latitude_ * 1e7)));
-    location->set_longitude(static_cast<google::protobuf::int32>(std::lround(longitude_ * 1e7)));
-    location->set_accuracy(static_cast<google::protobuf::uint32>(std::max(0.0, accuracy_)));
-    location->set_altitude(static_cast<google::protobuf::int32>(std::lround(altitude_)));
-    location->set_speed(static_cast<google::protobuf::int32>(std::lround(speed_)));
-    location->set_bearing(static_cast<google::protobuf::int32>(std::lround(bearing_)));
+
+    // Gated independently, not just on hasLocation_ - a phone could in
+    // principle start one of these without the other, and sending gps_
+    // location/speed for a sensor it never asked for would be a real
+    // (if likely harmless) protocol impurity.
+    if (locationStarted_) {
+        auto* location = indication.add_gps_location();
+        location->set_timestamp(static_cast<uint64_t>(now.count()));
+        // GPSLocation's latitude/longitude are fixed-point int32 - degrees x1e7,
+        // Android's own standard convention for this (fits int32's range with
+        // ~1cm precision at the equator). Confirmed working live - position
+        // tracks correctly on the phone with this encoding.
+        location->set_latitude(static_cast<google::protobuf::int32>(std::lround(latitude_ * 1e7)));
+        location->set_longitude(static_cast<google::protobuf::int32>(std::lround(longitude_ * 1e7)));
+        location->set_accuracy(static_cast<google::protobuf::uint32>(std::max(0.0, accuracy_)));
+        location->set_altitude(static_cast<google::protobuf::int32>(std::lround(altitude_)));
+        location->set_speed(static_cast<google::protobuf::int32>(std::lround(speed_)));
+        location->set_bearing(static_cast<google::protobuf::int32>(std::lround(bearing_)));
+    }
+
+    if (carSpeedStarted_) {
+        // Confirmed live: Waze showed no speed reading at all with only
+        // GPSLocation.speed set (position worked fine) - switching back to
+        // phone GPS made speed work again, meaning Waze's on-screen speed
+        // reads from this separate CAR_SPEED sensor, not from the location
+        // fix's own embedded speed field. Same m/s value either way (both
+        // mirror Android's plain-meters-per-second vehicle speed
+        // convention) - just offered through both channels now since
+        // there's no way to know which any given nav app actually prefers.
+        indication.add_speed()->set_speed(static_cast<google::protobuf::int32>(std::lround(speed_)));
+    }
 
     auto promise = aasdk::channel::SendPromise::defer(strand_);
     promise->then([]() {}, std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));

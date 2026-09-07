@@ -61,6 +61,16 @@ private:
 
     boost::asio::steady_timer locationTimer_;
     bool locationStarted_ = false;
+    // CAR_SPEED is a distinct SensorType from LOCATION (see SensorTypeEnum.proto)
+    // - some nav apps' own on-screen speed readout apparently sources from
+    // this dedicated sensor rather than GPSLocation's embedded speed field
+    // (confirmed live: Waze showed no speed at all with LOCATION-only
+    // injection, but worked once switched to phone GPS - phone-sourced
+    // location comes with the OS's own speed handling attached, which our
+    // injected LOCATION alone doesn't replace). Piggybacks on the same
+    // scheduleLocationUpdate()/sendLocationData() cycle rather than a
+    // second timer, since both sensors share the same underlying value.
+    bool carSpeedStarted_ = false;
     bool hasLocation_ = false;  // nothing latched via setLocation() yet - scheduleLocationUpdate() keeps retrying but sendLocationData() skips sending until this is true
     double latitude_ = 0;
     double longitude_ = 0;
