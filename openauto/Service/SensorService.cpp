@@ -105,6 +105,7 @@ void SensorService::onSensorStartRequest(const aasdk::proto::messages::SensorSta
     }
     else if(request.sensor_type() == aasdk::proto::enums::SensorType::LOCATION)
     {
+        locationStarted_ = true;
         promise->then(std::bind(&SensorService::scheduleLocationUpdate, this->shared_from_this()),
                       std::bind(&SensorService::onChannelError, this->shared_from_this(), std::placeholders::_1));
     }
@@ -169,18 +170,28 @@ void SensorService::setLocation(double latitude, double longitude, double altitu
     });
 }
 
-// Kicks off on the phone's first SensorStartRequest for LOCATION and keeps
-// rescheduling itself roughly once a second for as long as the sensor
-// stays started - stop() cancels locationTimer_ to end the chain rather
-// than this checking some other "still open" flag each time.
+// Kicks off on the phone's first SensorStartRequest for either LOCATION or
+// CAR_SPEED (whichever arrives first - onSensorStartRequest() already set
+// its own flag before calling this) and keeps rescheduling itself roughly
+// once a second for as long as either sensor stays started. Both sensors
+// share this single chain rather than each running their own timer, so a
+// second start request while it's already running must not kick off a
+// duplicate - re-arming locationTimer_ here would cancel the wait that's
+// already pending (boost::asio aborts a steady_timer's pending async_wait
+// when it's re-armed), restarting the 1s cadence from whichever sensor's
+// start request happened to land second.
 void SensorService::scheduleLocationUpdate()
 {
-    locationStarted_ = true;
+    if (timerRunning_)
+        return;
+    timerRunning_ = true;
+
     this->sendLocationData();
 
     locationTimer_.expires_after(std::chrono::seconds(1));
     locationTimer_.async_wait(strand_.wrap([this, self = this->shared_from_this()](const boost::system::error_code& ec) {
-        if (!ec && locationStarted_)
+        timerRunning_ = false;
+        if (!ec && (locationStarted_ || carSpeedStarted_))
             this->scheduleLocationUpdate();
     }));
 }

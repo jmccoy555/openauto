@@ -60,6 +60,7 @@ private:
     bool nightMode_;
 
     boost::asio::steady_timer locationTimer_;
+    bool timerRunning_ = false;  // guards against LOCATION and CAR_SPEED each kicking off their own copy of the same recurring chain - see scheduleLocationUpdate()
     bool locationStarted_ = false;
     // CAR_SPEED is a distinct SensorType from LOCATION (see SensorTypeEnum.proto)
     // - some nav apps' own on-screen speed readout apparently sources from
