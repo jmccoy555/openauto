@@ -44,6 +44,7 @@ public:
     void resize();
     void setNightMode(bool nightMode);
     void setLocation(double latitude, double longitude, double altitude, double speed, double bearing, double accuracy);
+    void clearLocation();
     void sendButtonPress(aasdk::proto::enums::ButtonCode::Enum buttonCode, projection::WheelDirection wheelDirection = projection::WheelDirection::NONE, projection::ButtonEventType buttonEventType = projection::ButtonEventType::NONE);
     void sendKeyEvent(QKeyEvent* event);
     void setAndroidAutoInterface(IAndroidAutoInterface* aa_interface);

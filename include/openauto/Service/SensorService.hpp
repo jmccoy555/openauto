@@ -48,6 +48,12 @@ public:
     // once the phone has asked for this sensor, not on every call here.
     void setLocation(double latitude, double longitude, double altitude, double speed, double bearing, double accuracy);
 
+    // Stops scheduleLocationUpdate() from re-sending a frozen last-known fix
+    // once the source behind it (e.g. an external GPS) has gone away - lets
+    // the phone's own on-device GPS take back over, the same as if this
+    // sensor had never been fed at all.
+    void clearLocation();
+
 private:
     using std::enable_shared_from_this<SensorService>::shared_from_this;
     void sendDrivingStatusUnrestricted();

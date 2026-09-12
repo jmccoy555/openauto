@@ -80,6 +80,13 @@ public:
             m_serviceFactory->setLocation(latitude, longitude, altitude, speed, bearing, accuracy);
         }
     }
+    void clearLocation()
+    {
+        if(m_serviceFactory != NULL)
+        {
+            m_serviceFactory->clearLocation();
+        }
+    }
     
 
 

@@ -286,6 +286,19 @@ void ServiceFactory::setLocation(double latitude, double longitude, double altit
     }
 }
 
+void ServiceFactory::clearLocation()
+{
+    // Same reasoning as setLocation() latching hasLocation_ here too - a
+    // fresh SensorService must not get re-primed with a fix we've since
+    // decided is no longer trustworthy.
+    hasLocation_ = false;
+
+    if(std::shared_ptr<SensorService> sensorService = sensorService_.lock())
+    {
+        sensorService->clearLocation();
+    }
+}
+
 void ServiceFactory::sendButtonPress(aasdk::proto::enums::ButtonCode::Enum buttonCode, projection::WheelDirection wheelDirection, projection::ButtonEventType buttonEventType)
 {
     if(std::shared_ptr<InputService> inputService = inputService_.lock())

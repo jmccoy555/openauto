@@ -196,6 +196,13 @@ void SensorService::scheduleLocationUpdate()
     }));
 }
 
+void SensorService::clearLocation()
+{
+    strand_.dispatch([this, self = this->shared_from_this()]() {
+        hasLocation_ = false;
+    });
+}
+
 void SensorService::sendLocationData()
 {
     // Nothing latched via setLocation() yet - skip rather than send a
